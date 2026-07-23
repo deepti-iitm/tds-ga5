@@ -48,16 +48,24 @@ async def scan(request: SkillRequest):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": request.skill}
             ],
-            temperature=0.0 # Low temperature makes the output consistent and predictable
+            temperature=0.1 # Low temperature makes the output consistent and predictable
         )
         
-        # Parse the AI response text back into a Python dictionary
-        result = json.loads(response.choices[0].message.content)
+        raw_content = response.choices.message.content.strip()
+        print(f"Raw AI Response: {raw_content}") # Check your server logs for this!
+        
+        # Strip potential markdown wrapper if the model ignored response_format
+        if raw_content.startswith("```"):
+            raw_content = raw_content.strip("`").replace("json", "", 1).strip()
+            
+        result = json.loads(raw_content)
         return result
 
     except Exception as e:
         # Fallback to an empty array so your server doesn't crash if something goes wrong
         return {"categories": []}
+
+
 # 2. Define what the incoming data looks like (The Request Body)
 class ProrationRequest(BaseModel):
     old_price: float

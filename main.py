@@ -8,6 +8,9 @@ app = FastAPI()
 # FastAPI App
 # ============================================================
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"],

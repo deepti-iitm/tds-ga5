@@ -4,6 +4,22 @@ from typing import Literal
 
 # 1. Initialize the web application
 app = FastAPI()
+# ============================================================
+# FastAPI App
+# ============================================================
+
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
+    allow_headers=["*"], allow_credentials=False,
+)
+
+HEAD = {"Authorization": f"Bearer {config.AIPIPE_TOKEN}", "Content-Type": "application/json"}
+_CACHE = {}
+
+@app.api_route("/", methods=["GET", "HEAD"])
+async def root():
+    return {"ok": True, "email": config.EMAIL}
 
 # 2. Define what the incoming data looks like (The Request Body)
 class ProrationRequest(BaseModel):

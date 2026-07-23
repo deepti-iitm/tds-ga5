@@ -6,6 +6,7 @@ import httpx
 import numpy as np
 from pydantic import BaseModel
 import config
+from typing import Literal
 # 1. Initialize the web application
 app = FastAPI()
 # ============================================================

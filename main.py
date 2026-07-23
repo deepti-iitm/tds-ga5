@@ -1,6 +1,6 @@
 import json, re, hashlib, os, math, struct
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
 import httpx
@@ -192,3 +192,81 @@ def check(data: GuardrailRequest):
         "decision": "continue",
         "reason": "Well under budget; the agent is making progress without repeating patterns."
     }
+
+#--------------Q6----------------
+
+@app.post("/mcp")
+async def mcp_endpoint(request: Request):
+    body = await request.json()
+    jsonrpc = body.get("jsonrpc")
+    method = body.get("method")
+    request_id = body.get("id")
+
+    # 1. Handle Handshake
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "exam-server", "version": "1.0.0"}
+            }
+        }
+
+    # 2. Handle Tools Listing
+    if method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "solve_challenge",
+                        "description": "Solves the live exam challenge",
+                        "inputSchema": {"type": "object", "properties": {}}
+                    }
+                ]
+            }
+        }
+
+    # 3. Handle Tool Call Execution
+    if method == "tools/call":
+        params = body.get("params", {})
+        tool_name = params.get("name")
+
+        if tool_name == "solve_challenge":
+            # Extract challenge strictly from the incoming HTTP request headers
+            # HTTP headers are case-insensitive, FastAPI automatically handles formatting
+            challenge = request.headers.get("x-exam-challenge")
+
+            if not challenge:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32602, "message": "Missing X-Exam-Challenge header"}
+                }
+
+            # Compute SHA-256("${challenge}:${normalizedEmail}")
+            data_to_hash = f"{challenge}:{config.EMAIL}"
+            full_hash = hashlib.sha256(data_to_hash.encode("utf-8")).hexdigest()
+            
+            # Grab the first 16 lowercase hex characters
+            short_result = full_hash[:16]
+
+            # Return standard MCP text content block response
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": short_result
+                        }
+                    ]
+                }
+            }
+
+    # Default fallback for unhandled notifications or methods
+    return {"jsonrpc": "2.0", "id": request_id, "result": {}}

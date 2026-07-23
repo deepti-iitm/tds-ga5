@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import numpy as np
+from pydantic import BaseModel
 import config
 # 1. Initialize the web application
 app = FastAPI()

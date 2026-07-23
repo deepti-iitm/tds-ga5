@@ -1,9 +1,29 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+import json, re, hashlib, os, math, struct
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+import httpx
+import numpy as np
+from pydantic import BaseModel
+import config
 from typing import Literal
-
 # 1. Initialize the web application
 app = FastAPI()
+# ============================================================
+# FastAPI App
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
+    allow_headers=["*"], allow_credentials=False,
+)
+
+HEAD = {"Authorization": f"Bearer {config.AIPIPE_TOKEN}", "Content-Type": "application/json"}
+_CACHE = {}
+
+@app.api_route("/", methods=["GET", "HEAD"])
+async def root():
+    return {"ok": True, "email": config.EMAIL}
 
 # 2. Define what the incoming data looks like (The Request Body)
 class ProrationRequest(BaseModel):
@@ -14,8 +34,8 @@ class ProrationRequest(BaseModel):
     spec: Literal["v1", "v2"] # Only accepts "v1" or "v2"
 
 # 3. Create the public HTTP POST endpoint
-@app.post("/calculate-proration")
-def calculate_proration(data: ProrationRequest):
+@app.post("/charge")
+def charge(data: ProrationRequest):
     # Calculate the price difference
     price_diff = data.new_price - data.old_price
     

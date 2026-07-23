@@ -7,6 +7,7 @@ import numpy as np
 from pydantic import BaseModel
 import config
 from typing import Literal
+from enum import Enum
 #from openai import OpenAI
 
 # 1. Initialize the web application

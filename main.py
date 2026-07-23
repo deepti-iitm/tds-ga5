@@ -29,7 +29,7 @@ async def root():
 
 
 # Initialize your AI client (ensure your API key is set in your environment variables)
-client = OpenAI()
+client = config.TEXT_MODEL
 
 # Define the structure of the incoming request data
 class SkillRequest(BaseModel):

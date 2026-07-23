@@ -7,7 +7,7 @@ import numpy as np
 from pydantic import BaseModel
 import config
 from typing import Literal
-from openai import OpenAI
+#from openai import OpenAI
 
 # 1. Initialize the web application
 app = FastAPI()

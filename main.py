@@ -34,8 +34,8 @@ class ProrationRequest(BaseModel):
     spec: Literal["v1", "v2"] # Only accepts "v1" or "v2"
 
 # 3. Create the public HTTP POST endpoint
-@app.post("/calculate-proration")
-def calculate_proration(data: ProrationRequest):
+@app.post("/charge")
+def charge(data: ProrationRequest):
     # Calculate the price difference
     price_diff = data.new_price - data.old_price
     

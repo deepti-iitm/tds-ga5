@@ -38,7 +38,28 @@ client = config.TEXT_MODEL
 # Define the structure of the incoming request data
 class SkillRequest(BaseModel):
     skill: str
-
+    
+# 2. Function to fetch the dynamic question/example data (as requested)
+async def fetch_question_data(email: str, quiz_sign: str, question_id: str, version: str):
+    url = "https://exam-origin-placeholder.com" # Replace with your actual exam host
+    params = {
+        "email": email,
+        "quizSign": quiz_sign,
+        "questionId": question_id,
+        "version": version
+    }
+    
+async with httpx.AsyncClient() as client:
+    try:
+        response = await client.get(url, params=params, timeout=5.0)
+        if response.status_code == 200:
+            data = response.json()
+            # This returns the dynamic example markdown string provided by your exam
+            return data.get("example_skill") or data.get("markdown") or str(data)
+        return None
+    except Exception:
+        return None
+            
 SYSTEM_PROMPT = (
     "You are a cynical, highly critical automated security linter for AI agent skill files.\n"
     "Analyze the provided file for 4 specific security vulnerability categories. \n"

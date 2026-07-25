@@ -6,3 +6,4 @@ python-dotenv==1.0.0
 httpx==0.25.1
 google-generativeai
 cryptography==42.0.8
+numpy

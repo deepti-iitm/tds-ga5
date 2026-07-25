@@ -30,6 +30,7 @@ _CACHE = {}
 async def root():
     return {"ok": True, "email": config.EMAIL}
 
+from q9 import router as q9_router
 
 # Initialize your AI client (ensure your API key is set in your environment variables)
 client = config.TEXT_MODEL
@@ -120,7 +121,7 @@ def charge(data: ProrationRequest):
     return {"charge": round(charge, 4)}
 
 
-
+app.include_router(q9_router)
 #-----------------Q5-----------------------
 
 class Step(BaseModel):

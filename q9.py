@@ -981,7 +981,7 @@ async def do_commit(body):
     persist_receipt_bindings(eval_id, receipts)
     return response
 
-@router.post("/v1/mailroom/actions")
+@router.post("/actions")
 @router.post("/q9/mailroom")
 @router.post("/mailroom")
 async def mailroom(request: Request):

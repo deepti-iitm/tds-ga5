@@ -368,8 +368,8 @@ def normalize_path(path):
         return path
 
 
-@app.post("/check")
-async def check(request: Request):
+@app.post("/check_3")
+async def check_3(request: Request):
     body = await request.json()
 
     tool = body.get("tool", "")

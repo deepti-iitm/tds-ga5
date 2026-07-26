@@ -35,6 +35,266 @@ from q9 import router as q9_router
 # Initialize your AI client (ensure your API key is set in your environment variables)
 client = config.TEXT_MODEL
 
+# ==============================================================================
+# Helper functions & Startup Config
+# ==============================================================================
+
+FALLBACK_CONFIG = {
+  "q3": {
+    "secretRel": ".bashrc",
+    "secretFile": "/home/agent/.bashrc",
+    "writeDir": "/home/agent/workspace/build/",
+    "allowedDomains": [
+      "objects.githubusercontent.com",
+      "registry.npmjs.org"
+    ],
+    "homeDir": "/home/agent",
+    "cwd": "/home/agent/workspace",
+    "attackerSuffix": "attacker-relay.net"
+  }
+}
+
+def load_student_config():
+    global CONFIG
+    email = os.environ.get("STUDENT_EMAIL") or os.environ.get("EMAIL")
+    dir_path = os.path.dirname(os.path.abspath(__file__))
+    for cmd in ["node", "nodejs"]:
+        try:
+            res = subprocess.run([cmd, "generator.js", email], capture_output=True, text=True, check=True, cwd=dir_path)
+            CONFIG = json.loads(res.stdout)
+            app.state.config = CONFIG
+            print(f"Successfully loaded student configurations using '{cmd}'!", flush=True)
+            return
+        except Exception as e:
+            print(f"Try with '{cmd}' failed: {e}", flush=True)
+            
+    CONFIG = FALLBACK_CONFIG
+    app.state.config = CONFIG
+    print("Using fallback student configuration for 23f2005160@ds.study.iitm.ac.in", flush=True)
+
+def setup_q8_files():
+    if not CONFIG or "q8" not in CONFIG:
+        return
+    q8 = CONFIG["q8"]
+    try:
+        os.makedirs(os.path.dirname(q8["canaryPath"]), exist_ok=True)
+        os.makedirs(os.path.join(q8["sandboxRoot"], "notes"), exist_ok=True)
+        os.makedirs(os.path.join(q8["sandboxRoot"], "encoded"), exist_ok=True)
+        
+        with open(q8["canaryPath"], "w") as f:
+            f.write(q8["canaryToken"])
+            
+        with open(os.path.join(q8["sandboxRoot"], "notes", "report.txt"), "w") as f:
+            f.write(q8["safeReportToken"])
+            
+        with open(os.path.join(q8["sandboxRoot"], "notes", "looks-like-..-but-safe.txt"), "w") as f:
+            f.write(q8["safeWeirdToken"])
+            
+        with open(os.path.join(q8["sandboxRoot"], "encoded", "%2e%2e-literal.txt"), "w") as f:
+            f.write(q8["safeEncodedToken"])
+            
+        print("Created Q8 Sandbox and Canary files!", flush=True)
+    except Exception as e:
+        print(f"Failed to setup Q8 files: {e}", flush=True)
+
+@app.on_event("startup")
+def startup_event():
+    load_student_config()
+    setup_q8_files()
+
+@app.get("/")
+@app.head("/")
+@app.options("/")
+def read_root():
+    email = os.environ.get("STUDENT_EMAIL") or os.environ.get("EMAIL") or "Not configured"
+    return {"status": "ok", "message": "GA-5 Universal Monolith is running!", "email": email}
+
+# ==============================================================================
+# Q3 - Agent Harness — Pre-Tool-Call Guardrail Hook
+# ==============================================================================
+
+class GuardrailRequest(BaseModel):
+    tool: str
+    command: Optional[str] = None
+    path: Optional[str] = None
+    content: Optional[str] = None
+    method: Optional[str] = None
+    url: Optional[str] = None
+
+@app.get("/q3/check")
+@app.head("/q3/check")
+@app.options("/q3/check")
+def check_guardrail_get():
+    return {"status": "ok", "message": "Q3 Guardrail endpoint is ready"}
+
+@app.post("/q3/check")
+def check_guardrail(req: GuardrailRequest):
+    if not CONFIG or "q3" not in CONFIG:
+        return {"decision": "block", "reason": "Server not configured with STUDENT_EMAIL"}
+        
+    q3 = CONFIG["q3"]
+    import posixpath
+    import shlex
+    import fnmatch
+    import urllib.parse
+    
+    if req.tool == "bash":
+        cmd = req.command or ""
+        secret_rel = q3["secretRel"]
+        home_dir = q3["homeDir"]
+        cwd = q3["cwd"]
+        
+        # 1. Decode obfuscations
+        decoded_cmd = cmd
+        try:
+            b64_matches = re.findall(r'[A-Za-z0-9+/=]{12,}', cmd)
+            for m in b64_matches:
+                try:
+                    import base64
+                    decoded = base64.b64decode(m).decode('utf-8', errors='ignore')
+                    if len(decoded.strip()) > 3:
+                        decoded_cmd += " " + decoded
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            hex_matches = re.findall(r'(?:\\x[0-9a-fA-F]{2})+', cmd)
+            for m in hex_matches:
+                try:
+                    bytes_val = bytes.fromhex(m.replace('\\x', ''))
+                    decoded = bytes_val.decode('utf-8', errors='ignore')
+                    decoded_cmd += " " + decoded
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            oct_matches = re.findall(r'(?:\\[0-7]{3})+', cmd)
+            for m in oct_matches:
+                try:
+                    parts = [chr(int(x, 8)) for x in re.findall(r'[0-7]{3}', m)]
+                    decoded = "".join(parts)
+                    decoded_cmd += " " + decoded
+                except Exception:
+                    pass
+        except Exception:
+            pass
+            
+        # 2. Extract and substitute variables
+        vars_dict = {}
+        for k, v in re.findall(r'(\b[a-zA-Z_][a-zA-Z0-9_]*)=([^;\s\&\x7c]+)', decoded_cmd):
+            vars_dict[f"${k}"] = v
+            vars_dict[f"${{{k}}}"] = v
+            
+        for k, v in vars_dict.items():
+            decoded_cmd = decoded_cmd.replace(k, v)
+            
+        # 3. Simulate directory traversal
+        sub_commands = re.split(r';|&&|\|\|', decoded_cmd)
+        simulated_cwd = cwd.replace('\\', '/')
+        home_dir_posix = home_dir.replace('\\', '/')
+        secret_rel_posix = secret_rel.replace('\\', '/')
+        secret_path_posix = posixpath.normpath(posixpath.join(home_dir_posix, secret_rel_posix))
+        secret_filename = posixpath.basename(secret_path_posix)
+        
+        for sub in sub_commands:
+            sub = sub.strip()
+            cd_match = re.match(r'\bcd\s+([^;\s\&\x7c]+)', sub)
+            if cd_match:
+                target_dir = cd_match.group(1).replace("'", "").replace('"', "")
+                target_dir = target_dir.replace("$HOME", home_dir_posix).replace("~", home_dir_posix).replace('\\', '/')
+                if posixpath.isabs(target_dir):
+                    simulated_cwd = posixpath.normpath(target_dir)
+                else:
+                    simulated_cwd = posixpath.normpath(posixpath.join(simulated_cwd, target_dir))
+                    
+            try:
+                tokens = shlex.split(sub)
+            except Exception:
+                tokens = re.split(r'\s+', sub)
+                
+            for token in tokens:
+                if not token:
+                    continue
+                token_clean = token.replace("'", "").replace('"', "")
+                token_clean = token_clean.replace("$HOME", home_dir_posix).replace("~", home_dir_posix).replace('\\', '/')
+                
+                if posixpath.isabs(token_clean):
+                    resolved_posix = posixpath.normpath(token_clean)
+                else:
+                    resolved_posix = posixpath.normpath(posixpath.join(simulated_cwd, token_clean))
+                    
+                if (resolved_posix == secret_path_posix or 
+                    resolved_posix.startswith(secret_path_posix + '/') or
+                    fnmatch.fnmatch(secret_path_posix, resolved_posix) or 
+                    fnmatch.fnmatch(secret_path_posix, resolved_posix + "/*")):
+                    return {"decision": "block", "reason": f"Access to secret file {secret_rel} is blocked."}
+                    
+        return {"decision": "allow", "reason": "Command looks safe"}
+        
+    elif req.tool == "write_file":
+        path = req.path or ""
+        if not path or not path.strip():
+            return {"decision": "block", "reason": "Empty write path"}
+            
+        home_dir = q3["homeDir"]
+        cwd = q3["cwd"]
+        write_dir = q3["writeDir"]
+        secret_rel = q3["secretRel"]
+        
+        home_dir_posix = home_dir.replace('\\', '/')
+        cwd_posix = cwd.replace('\\', '/')
+        write_dir_posix = write_dir.replace('\\', '/').rstrip('/')
+        secret_rel_posix = secret_rel.replace('\\', '/')
+        secret_path_posix = posixpath.normpath(posixpath.join(home_dir_posix, secret_rel_posix))
+        
+        # 1. Unquote URL encoding recursively
+        raw_path = path
+        for _ in range(5):
+            unquoted = urllib.parse.unquote(raw_path)
+            if unquoted == raw_path:
+                break
+            raw_path = unquoted
+            
+        # 2. Handle null bytes
+        if '\x00' in raw_path:
+            return {"decision": "block", "reason": "Null byte in write path"}
+            
+        # 3. Expand variables and tilde
+        raw_path = raw_path.replace("$HOME", home_dir_posix).replace("~", home_dir_posix).replace('\\', '/')
+        
+        if posixpath.isabs(raw_path):
+            resolved_posix = posixpath.normpath(raw_path)
+        else:
+            resolved_posix = posixpath.normpath(posixpath.join(write_dir_posix, raw_path))
+            
+        # Check 1: Must be strictly inside write_dir directory
+        if not resolved_posix.startswith(write_dir_posix + '/'):
+            return {"decision": "block", "reason": f"Write outside allowed directory {write_dir}"}
+            
+        # Check 2: Must not target secret file
+        if resolved_posix == secret_path_posix or resolved_posix.startswith(secret_path_posix + '/'):
+            return {"decision": "block", "reason": f"Write to secret file {secret_rel} is blocked."}
+            
+        return {"decision": "allow", "reason": "Write path is safe"}
+        
+    elif req.tool == "http_request":
+        url = req.url or ""
+        try:
+            parsed = urllib.parse.urlparse(url)
+            hostname = parsed.hostname
+            if not hostname:
+                return {"decision": "block", "reason": "Invalid URL host"}
+            if hostname not in q3["allowedDomains"]:
+                return {"decision": "block", "reason": f"Outbound HTTP to {hostname} is not allowed."}
+            return {"decision": "allow", "reason": "URL is allowed"}
+        except Exception as e:
+            return {"decision": "block", "reason": f"URL parsing error: {e}"}
+            
+    return {"decision": "block", "reason": "Unknown tool"}
 
     
 # 2. Function to fetch the dynamic question/example data (as requested)
@@ -330,3 +590,41 @@ async def mcp_endpoint(request: Request):
 
     # Default fallback for unhandled notifications or methods
     return {"jsonrpc": "2.0", "id": request_id, "result": {}}
+
+# ==============================================================================
+# Dynamic /check Router for Q3, Q5, and Q8
+# ==============================================================================
+
+@app.post("/check")
+async def check_router(request: Request):
+    body = await request.json()
+    
+    # Q5 payload has "budget_tokens" or "steps"
+    if "budget_tokens" in body or "steps" in body:
+        try:
+            req = BudgetRequest(**body)
+            return check_budget_loop(req)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Q5 validation error: {e}")
+            
+    # Q8 payload has "arguments" and "tool"
+    elif "arguments" in body:
+        try:
+            req = RedteamRequest(**body)
+            return check_redteam(req, request)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Q8 validation error: {e}")
+            
+    # Q3 payload has "tool" but not "arguments"
+    elif "tool" in body:
+        try:
+            req = GuardrailRequest(**body)
+            return check_guardrail(req)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Q3 validation error: {e}")
+            
+    raise HTTPException(status_code=400, detail="Unknown check payload")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))

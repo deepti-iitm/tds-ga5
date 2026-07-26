@@ -461,41 +461,65 @@ class BudgetRequest(BaseModel):
     budget_tokens: int
     steps: List[Step]
 
-def canonical_args(args_dict: Dict[str, Any], irrelevant_field: str) -> str:
+def canonicalize_args(args: Dict[str, Any]) -> str:
+    if not isinstance(args, dict):
+        return json.dumps(args)
+        
+    cleaned = {}
+    for key, value in args.items():
+        if key == "client_ts":
+            continue
+        if isinstance(value, str):
+            value = re.sub(r'\s+', ' ', value).strip()
+        elif isinstance(value, dict):
+            value = json.loads(canonicalize_args(value))
+        cleaned[key] = value
+
     return json.dumps(cleaned, sort_keys=True)
 
 @app.post("/q5/check")
-def check_budget_loop(req: BudgetRequest):
-    if not CONFIG or "q5" not in CONFIG:
-        return {"decision": "halt", "reason": "Server not configured with STUDENT_EMAIL"}
-        
-    q5 = CONFIG["q5"]
-    irr = q5["irrelevantField"]
-    
-    total_tokens = sum(s.tokens_used for s in req.steps)
-    if total_tokens >= req.budget_tokens:
-        return {"decision": "halt", "reason": f"Cumulative tokens_used ({total_tokens}) has reached the budget ({req.budget_tokens})."}
-        
-    steps = req.steps
-    n = len(steps)
-    
-    if n >= 3:
-        s1 = steps[-1]
-        s2 = steps[-2]
-        s3 = steps[-3]
-        if s1.tool == s2.tool == s3.tool:
-            c1 = canonical_args(s1.args, irr)
-            c2 = canonical_args(s2.args, irr)
-            c3 = canonical_args(s3.args, irr)
-            if c1 == c2 == c3:
-                return {"decision": "halt", "reason": "Detected 3 identical consecutive tool calls"}
-                
-    if n >= 6:
-        c_steps = [(s.tool, canonical_args(s.args, irr)) for s in steps[-6:]]
-        if (c_steps[0] == c_steps[2] == c_steps[4]) and (c_steps[1] == c_steps[3] == c_steps[5]) and (c_steps[0] != c_steps[1]):
-            return {"decision": "halt", "reason": "Detected 2-step infinite loop"}
-            
-    return {"decision": "continue", "reason": "Well under budget and no loop detected"}
+def check(data: BudgetRequest):
+    steps = data.steps
+    budget_tokens = data.budget_tokens
+
+    # 1. Budget Token Check
+    total_tokens = sum(step.tokens_used for step in steps)
+    if total_tokens >= budget_tokens:
+        return {
+            "decision": "halt",
+            "reason": f"Cumulative tokens_used ({total_tokens}) has reached the budget ({budget_tokens})."
+        }
+
+    if not steps:
+        return {
+            "decision": "continue",
+            "reason": "First step of a fresh run under budget."
+        }
+
+    history = [(s.tool, canonicalize_args(s.args)) for s in steps]
+
+    # 2. 3-in-a-row Loop Check
+    if len(history) >= 3:
+        last_three = history[-3:]
+        if last_three[0] == last_three[1] == last_three[2]:
+            return {
+                "decision": "halt",
+                "reason": f"Loop detected: The tool '{last_three[0][0]}' was called 3 times sequentially with identical args."
+            }
+
+    # 3. 2-Step Alternating Cycle Check (A, B, A, B, A, B)
+    if len(history) >= 6:
+        last_six = history[-6:]
+        if (last_six[0] == last_six[2] == last_six[4]) and (last_six[1] == last_six[3] == last_six[5]):
+            return {
+                "decision": "halt",
+                "reason": f"Loop detected: 2-step alternating cycle observed across trailing steps."
+            }
+
+    return {
+        "decision": "continue",
+        "reason": "Well under budget; the agent is making progress without repeating patterns."
+    }
 #--------------Q6----------------
 
 @app.post("/mcp")

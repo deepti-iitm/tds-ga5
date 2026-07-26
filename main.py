@@ -30,7 +30,11 @@ _CACHE = {}
 async def root():
     return {"ok": True, "email": config.EMAIL}
 
+# Import Q8 - Q11 routers
+from q8 import router as q8_router
 from q9 import router as q9_router
+from q10 import router as q10_router
+from q11 import router as q11_router
 
 # Initialize your AI client (ensure your API key is set in your environment variables)
 client = config.TEXT_MODEL
@@ -440,8 +444,11 @@ def charge(data: ProrationRequest):
     # 4. Return the response in the exact JSON format required
     return {"charge": round(charge, 4)}
 
-
+app.include_router(q8_router)
 app.include_router(q9_router)
+app.include_router(q10_router)
+app.include_router(q11_router)
+
 #-----------------Q5-----------------------
 
 class Step(BaseModel):

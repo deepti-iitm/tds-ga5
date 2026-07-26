@@ -35,9 +35,7 @@ from q9 import router as q9_router
 # Initialize your AI client (ensure your API key is set in your environment variables)
 client = config.TEXT_MODEL
 
-# Define the structure of the incoming request data
-class SkillRequest(BaseModel):
-    skill: str
+
     
 # 2. Function to fetch the dynamic question/example data (as requested)
 async def fetch_question_data(email: str, quiz_sign: str, question_id: str, version: str):
@@ -84,8 +82,12 @@ class ScannerResponse(BaseModel):
     categories: List[SecurityCategory]
 
 #------------Q4------------------
+# Define the structure of the incoming request data
+class SkillRequest(BaseModel):
+    skill: str
+    
 @app.post("/scan")
-def scan_skill(req: ScanRequest):
+def scan_skill(req: SkillRequest):
     skill = req.skill.lower()
     categories = []
     

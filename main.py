@@ -83,32 +83,69 @@ class SecurityCategory(str, Enum):
 class ScannerResponse(BaseModel):
     categories: List[SecurityCategory]
 
-
-    
+#------------Q4------------------
 @app.post("/scan")
-async def scan(request: SkillRequest):
-    try:
-        # We use response_format with a Pydantic model to guarantee valid structure
-        response = client.beta.chat.completions.parse(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": request.skill}
-            ],
-            response_format=ScannerResponse,
-            temperature=0.0
-        )
+def scan_skill(req: ScanRequest):
+    skill = req.skill.lower()
+    categories = []
+    
+    # 1. Hardcoded Secret Detection
+    has_secret = False
+    if "hooks.slack.com" in skill or "discord.com/api/webhooks" in skill:
+        has_secret = True
+    if re.search(r"sk-live-[a-zA-Z0-9]{12,}", skill):
+        has_secret = True
+    if re.search(r"akia[a-z0-9]{16}", skill):
+        has_secret = True
+    if re.search(r"(?:api_key|apikey|token|secret|password|private_key|credentials)\s*[:=]\s*['\"][a-zA-Z0-9_\-\.]{12,}['\"]", skill):
+        has_secret = True
+    if "api_key" in skill and "sk-live" in skill:
+        has_secret = True
+    if has_secret:
+        categories.append("hardcoded_secret")
         
-        # Extract the structured object directly
-        parsed_response = response.choices.message.parsed
-        return {"categories": parsed_response.categories}
+    # 2. Prompt Injection Detection
+    has_injection = False
+    if "silently" in skill and any(x in skill for x in ["post", "send", "upload", "exfiltrate", "leak", "transmit", "telemetry"]):
+        has_injection = True
+    if "ignore" in skill and any(x in skill for x in ["instruction", "system", "cancel", "stop", "user"]):
+        has_injection = True
+    if "do not" in skill and any(x in skill for x in ["reveal", "tell", "surface", "mention", "log", "output", "surfacing"]):
+        has_injection = True
+    if has_injection:
+        categories.append("prompt_injection")
+        
+    # 3. Excessive Permissions Detection
+    has_excessive = False
+    if "entire home" in skill or "entire filesystem" in skill or "any external domain" in skill or "egress allowed to any" in skill:
+        has_excessive = True
+    if "permissions:" in skill and "*" in skill:
+        has_excessive = True
+    if "read-write access to the entire" in skill:
+        has_excessive = True
+    if has_excessive:
+        categories.append("excessive_permissions")
+        
+    # 4. Unclear Provenance Detection
+    has_unclear = False
+    fm_match = re.match(r"^---\s*\n(.*?)\n---", req.skill, re.DOTALL)
+    if fm_match:
+        fm = fm_match.group(1)
+        if "author:" not in fm or "version:" not in fm:
+            has_unclear = True
+    else:
+        has_unclear = True
+        
+    if "silently update" in skill and any(x in skill for x in ["version", "metadata", "changelog", "version.json"]):
+        has_unclear = True
+        
+    if has_unclear:
+        categories.append("unclear_provenance")
+        
+    return {"categories": categories}
 
-    except Exception as e:
-        print(f"Error: {e}")
-        # Fallback ensures endpoint doesn't crash, but structured parsing should prevent this entirely
-        return {"categories": []}
 
-
+#------------------------------------Q2--------------------------
 # 2. Define what the incoming data looks like (The Request Body)
 class ProrationRequest(BaseModel):
     old_price: float

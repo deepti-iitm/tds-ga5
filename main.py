@@ -105,10 +105,10 @@ def setup_q8_files():
     except Exception as e:
         print(f"Failed to setup Q8 files: {e}", flush=True)
 
-@app.on_event("startup")
-def startup_event():
-    load_student_config()
-    setup_q8_files()
+#@app.on_event("startup")
+#def startup_event():
+  #  load_student_config()
+    #setup_q8_files()
 
 @app.get("/")
 @app.head("/")

@@ -568,13 +568,7 @@ def charge(data: ProrationRequest):
     # 4. Return the response in the exact JSON format required
     return {"charge": round(charge, 4)}
 
-# ==============================================================================
-# Attach Q8, Q9, Q10, Q11 Routers
-# ==============================================================================
-app.include_router(q8_router)
-app.include_router(q9_router)
-app.include_router(q10_router)
-app.include_router(q11_router)
+
 
 #-----------------Q5-----------------------
 
@@ -724,7 +718,14 @@ async def mcp_endpoint(request: Request):
 
     # Default fallback for unhandled notifications or methods
     return {"jsonrpc": "2.0", "id": request_id, "result": {}}
-
+    
+# ==============================================================================
+# Attach Q8, Q9, Q10, Q11 Routers
+# ==============================================================================
+app.include_router(q8_router)
+app.include_router(q9_router)
+app.include_router(q10_router)
+app.include_router(q11_router)
 # ==============================================================================
 # Dynamic /check Router for Q3, Q5, and Q8
 # ==============================================================================

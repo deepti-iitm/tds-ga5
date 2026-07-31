@@ -132,105 +132,93 @@ ALLOWED_HOSTS = {
 
 
 def normalize_path(path):
-    path = path.replace("$HOME", HOME)
-    path = path.replace("${HOME}", HOME)
-
-    if path.startswith("~"):
-        path = path.replace("~", HOME, 1)
-
-    if not os.path.isabs(path):
-        path = os.path.join(WORKSPACE, path)
-
-    return os.path.normpath(path)
+   """Safely resolves shorthand modifiers and returns an absolute, clean path."""
+    # 1. Resolve home folder shorthands safely
+    path_str = path_str.replace("${HOME}", HOME).replace("$HOME", HOME)
+    if path_str.startswith("~"):
+        path_str = path_str.replace("~", HOME, 1)
+        
+    # 2. Bind relative paths to the designated workspace
+    if not os.path.isabs(path_str):
+        path_str = os.path.join(WORKSPACE, path_str)
+        
+    # 3. Canonicalize path eliminating relative traversal sequences like '..'
+    return os.path.abspath(path_str)
 
 
 def inside_reports(path):
-    p = normalize_path(path)
-    return p == WRITE_ROOT or p.startswith(WRITE_ROOT + os.sep)
+    p = normalize_path(path_str)
+    allowed_prefix = os.path.join(WRITE_ROOT, "")
+    return p.startswith(allowed_prefix) or p == WRITE_ROOT
 
 
 def reads_secret(command):
-
-    cmd = command.replace("$HOME", HOME).replace("${HOME}", HOME)
-    cmd = cmd.replace("~", HOME)
-
-    # Decode base64 payloads if present
-    for token in re.findall(r"[A-Za-z0-9+/=]{20,}", cmd):
+"""Deep-scans a shell command for references to the target secret."""
+    # 1. Extract and append hidden Base64 content payloads
+    for token in re.findall(r"[A-Za-z0-9+/=]{16,}", command):
         try:
             decoded = base64.b64decode(token).decode("utf-8", "ignore")
-            cmd += " " + decoded
+            command += " " + decoded
         except Exception:
             pass
 
-    # Look for absolute paths
-    for p in re.findall(r"/[^\s'\"|;]+", cmd):
-        if normalize_path(p) == SECRET:
-            return True
+    # 2. Standardize shell context shorthand references
+    evaluated_cmd = command.replace("${HOME}", HOME).replace("$HOME", HOME)
+    evaluated_cmd = evaluated_cmd.replace("~", HOME)
 
-    # Look for relative paths after cat/less/head/tail
-    for p in re.findall(r"(?:cat|less|head|tail)\s+([^\s'\"|;]+)", cmd):
-        if normalize_path(p) == SECRET:
-            return True
+    # 3. Extract all text fragments resembling standard or structural file paths
+    # This captures relative strings, paths in commands, variables, or inside strings
+    potential_paths = re.findall(r"[\w/.\-]+", evaluated_cmd)
+    
+    for segment in potential_paths:
+        if ".env" in segment:
+            # Reconstruct and normalize the absolute location of this target match
+            if os.path.abspath(segment) == SECRET or normalize_path(segment) == SECRET:
+                return True
+                
+    # 4. Blanket protection against exact literal presence
+    if ".env" in command:
+        # If the filename is invoked anywhere in the raw text, safely deny execution
+        return True
 
     return False
-
 
 @app.post("/q3/check")
 async def check(req: Request):
 
     call = await req.json()
-
     tool = call["tool"]
 
     if tool == "bash":
+        cmd = call.get("command", "")
+        if contains_secret_leak(cmd):
+            return {"decision": "block", "reason": "Protected file access policy violation."}
+        return {"decision": "allow", "reason": "Command allowed."}
 
-        cmd = call["command"]
-
-        if reads_secret(cmd):
-            return {
-                "decision": "block",
-                "reason": "Protected file access"
-            }
-
-        return {
-            "decision": "allow",
-            "reason": "Command allowed"
-        }
 
     elif tool == "write_file":
+        path_target = call.get("path", "")
+        if inside_reports(path_target):
+            return {"decision": "allow", "reason": "Write location allowed."}
+        return {"decision": "block", "reason": "Write outside authorized directory tree."}
 
-        if inside_reports(call["path"]):
-            return {
-                "decision": "allow",
-                "reason": "Write allowed"
-            }
-
-        return {
-            "decision": "block",
-            "reason": "Write outside reports directory"
-        }
 
     elif tool == "http_request":
+        url_str = call.get("url", "")
+        try:
+            # Force case-insensitive host matching
+            host = (urlparse(url_str).hostname or "").lower()
+            
+            # Check for exact matches against allowlist entries
+            if host in {h.lower() for h in ALLOWED_HOSTS}:
+                return {"decision": "allow", "reason": "Permitted target host verified."}
+        except Exception:
+            pass
+        return {"decision": "block", "reason": "Target host not permitted."}
+    return {"decision": "block", "reason": "Unknown tool execution requested."}
 
-        host = urlparse(call["url"]).hostname or ""
-
-        if host in ALLOWED_HOSTS:
-            return {
-                "decision": "allow",
-                "reason": "Allowed host"
-            }
-
-        return {
-            "decision": "block",
-            "reason": "Host not permitted"
-        }
-
-    return {
-        "decision": "block",
-        "reason": "Unknown tool"
-    }
-
-
+    except Exception:
+        return {"decision": "block", "reason": "Malformed guardrail instruction formatting."}
 
 #------------Q4------------------
 # Define the structure of the incoming request data

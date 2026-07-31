@@ -130,18 +130,25 @@ ALLOWED_HOSTS = {
     "registry.npmjs.org"
 }
 
+def clean_shell_text(text: str) -> str:
+    """Removes shell quotes and expands variables to handle obfuscation."""
+    # Remove single and double quotes used for concatenation (e.g., /home/agent/'.'env)
+    text = text.replace("'", "").replace('"', "")
+    
+    # Expand shell directory shortcuts
+    text = text.replace("${HOME}", HOME).replace("$HOME", HOME)
+    if text.startswith("~"):
+        text = text.replace("~", HOME, 1)
+        
+    return text
 
 def normalize_path(path):
     # 1. Resolve home folder shorthands safely
-    path_str = path_str.replace("${HOME}", HOME).replace("$HOME", HOME)
-    if path_str.startswith("~"):
-        path_str = path_str.replace("~", HOME, 1)
-        
-    # 2. Bind relative paths to the designated workspace
+    path_str = clean_shell_text(path_str)
+    
     if not os.path.isabs(path_str):
         path_str = os.path.join(WORKSPACE, path_str)
         
-    # 3. Canonicalize path eliminating relative traversal sequences like '..'
     return os.path.abspath(path_str)
 
 
@@ -160,25 +167,25 @@ def reads_secret(command):
             command += " " + decoded
         except Exception:
             pass
+    # Clean quotes and resolve system variables across the entire shell string
+    normalized_command = clean_shell_text(command)
 
-    # 2. Standardize shell context shorthand references
-    evaluated_cmd = command.replace("${HOME}", HOME).replace("$HOME", HOME)
-    evaluated_cmd = evaluated_cmd.replace("~", HOME)
-
-    # 3. Extract all text fragments resembling standard or structural file paths
-    # This captures relative strings, paths in commands, variables, or inside strings
-    potential_paths = re.findall(r"[\w/.\-]+", evaluated_cmd)
+    # 2. Extract structural paths, tokens, and arguments safely
+    # This matches file paths, relative components, and strings separated by spaces/operators
+    potential_tokens = re.findall(r"[\w/.\-]+", normalized_command)
     
-    for segment in potential_paths:
-        if ".env" in segment:
-            # Reconstruct and normalize the absolute location of this target match
-            if os.path.abspath(segment) == SECRET or normalize_path(segment) == SECRET:
-                return True
-                
-    # 4. Blanket protection against exact literal presence
-    if ".env" in command:
-        # If the filename is invoked anywhere in the raw text, safely deny execution
-        return True
+    for token in potential_tokens:
+        # Check if the string forms a path pointing to our secret file
+        if ".env" in token:
+            try:
+                # Test against absolute structural targets
+                if os.path.abspath(token) == SECRET:
+                    return True
+                # Test against workspace relative targets
+                if normalize_path(token) == SECRET:
+                    return True
+            except Exception:
+                pass
 
     return False
 

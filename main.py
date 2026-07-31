@@ -216,9 +216,6 @@ async def check(req: Request):
         return {"decision": "block", "reason": "Target host not permitted."}
     return {"decision": "block", "reason": "Unknown tool execution requested."}
 
-    except Exception:
-        return {"decision": "block", "reason": "Malformed guardrail instruction formatting."}
-
 #------------Q4------------------
 # Define the structure of the incoming request data
 class SkillRequest(BaseModel):

@@ -152,7 +152,7 @@ def inside_reports(path):
 
 
 def reads_secret(command):
-"""Deep-scans a shell command for references to the target secret."""
+
     # 1. Extract and append hidden Base64 content payloads
     for token in re.findall(r"[A-Za-z0-9+/=]{16,}", command):
         try:

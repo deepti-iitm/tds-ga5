@@ -132,7 +132,6 @@ ALLOWED_HOSTS = {
 
 
 def normalize_path(path):
-   """Safely resolves shorthand modifiers and returns an absolute, clean path."""
     # 1. Resolve home folder shorthands safely
     path_str = path_str.replace("${HOME}", HOME).replace("$HOME", HOME)
     if path_str.startswith("~"):

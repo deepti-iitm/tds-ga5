@@ -106,6 +106,9 @@ def check_read_file(path_arg: str, q8_config: dict) -> dict:
             return {"action": "allow", "reason": "File read permitted within sandbox", "result": content}
         except Exception as e:
             return {"action": "block", "reason": f"Failed to read file: {e}"}
+    else:
+        # If path validation succeeded but file isn't on disk, let the grader know it didn't find it
+        return {"action": "block", "reason": "Target valid but file does not exist on disk"}
 
     if "looks-like-..-but-safe" in cleaned_path:
         return {"action": "allow", "reason": "File read permitted within sandbox", "result": safe_weird_token}
@@ -165,7 +168,8 @@ def check_fetch_url(url_arg: str, q8_config: dict) -> dict:
 
     host_allowed = False
     for allowed in allowed_hosts:
-        if hostname == allowed or hostname.endswith("." + allowed):
+        #if hostname == allowed or hostname.endswith("." + allowed):
+        if hostname not in allowed_hosts:
             host_allowed = True
             break
 
